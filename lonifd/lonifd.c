@@ -41,7 +41,7 @@ static int setup_serial_interface(char* devstr, int ldisc) {
         perror("tcsetattr");
     }
     if (ioctl(fd, TIOCSETD, &ldisc) < 0) {
-        perror("ioctl");
+        perror("ioctl failed, make sure that the u50 module is loaded!");
         syslog(LOG_ERR, "Error setting device attributes: %s\n", strerror(errno));
     }
     return fd;
@@ -219,7 +219,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    //daemon(0, 1);
+    daemon(0, 1);
     
     setup_serial_interface(devstr, ldisc);
 	if (setup_lon_iface(devstr) < 0) return -1;
