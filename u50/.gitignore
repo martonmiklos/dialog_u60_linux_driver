@@ -1,0 +1,5 @@
+Module.symvers
+modules.order
+u50.mod.c
+*.cmd
+.tmp_versions
