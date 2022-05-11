@@ -28,7 +28,7 @@ ls /dev/lon*
 ifconfig -a # shall list the lon interface
 ```
 
-See the README file from an old Echelon package in this repo
+See the [README](https://github.com/martonmiklos/dialog_u60_linux_driver/blob/master/README) file from an old Echelon package in this repo
 
 ### License
 
