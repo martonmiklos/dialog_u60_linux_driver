@@ -197,7 +197,7 @@ static int u50_dev_open(struct net_device *dev) {
 #else
 		U50_OPEN_LAYER2);
 #endif
-    dev_set_mac_address(dev, &sp);
+    dev_set_mac_address(dev, &sp, NULL);
 	flush_cancel(dev);
 	netif_start_queue(dev);
 	return 0;
@@ -281,10 +281,6 @@ static int u50_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) {
 	return 0;
 }
 
-static void u50_free_netdev(struct net_device *dev) {
-	free_netdev(dev);
-}
-
 static const struct net_device_ops u50_netdev_ops = {
 	.ndo_init = u50_dev_init,
 	.ndo_uninit = u50_dev_uninit,
@@ -298,7 +294,7 @@ static const struct net_device_ops u50_netdev_ops = {
 static void u50_setup(struct net_device *dev) {
 //	dev->header_ops = &ldv_header_ops;
 	dev->netdev_ops = &u50_netdev_ops;
-	dev->destructor = u50_free_netdev;
+    dev->needs_free_netdev = true;
 
 	dev->type = U50_DEV_TYPE;
 	dev->hard_header_len = 0;
