@@ -1,0 +1,129 @@
+U60 Driver Source Code ReadMe Document
+======================================
+11-May-2015
+
+Copyright (C) 2014 - 2015 Echelon Corporation.  All rights reserved.
+
+Use of this code is subject to the terms of the Echelon Example Software License
+Agreement which is available at www.echelon.com/license/examplesoftware/.
+
+The U50 Module is a network driver for Linux that is used to communicate 
+with the Echelon U60 and U50 network interfaces.  This document only 
+refers to the U60 driver and the U60 network interface since the U60 
+replaced the U50.
+
+The U60 driver creates a Linux network device that can be used to send 
+and receive classic LON and LonTalk/IP packets using a U60 network 
+interface.  The U60 network interface can be configured to operate in 
+Layer 2 or Layer 5 protocol processing mode, where the Layer number 
+specifies the highest layer of the ISO/IEC 14908-1 protocol processed 
+by the U60 network interface.  The LonTalk Device Stack EX included with 
+the IzoT Router and with the IzoT SDK implements Layers 3 to 6 of the 
+ISO/IEC 14908-1 Control Network Protocol with LonTalk/IP extensions.  As 
+a result, the Layer 2 protocol processing mode is required to use the U60 
+network interface with the LonTalk Device Stack EX.  Existing applications 
+developed for other network interfaces such as the Echelon MIP or U10 
+network interface typically use a Layer 5 interface where the network 
+interface implements Layers 1 through 5 of the ISO/IEC 14908-1 protocol.  
+When used in Layer 5 mode, the U60 network interface provides an interface 
+that is compatible with the interface provided by other LON network 
+interfaces such as the MIP and U10.
+
+The U60 driver is included with the Echelon IzoT Router, and it is also 
+available as source code for porting to other platforms.  The U60 driver 
+can be built to open the U60 network interface in either Layer 2 or 
+Layer 5 mode.  To open the interface in Layer 5 mode, change 
+U50_OPEN_LAYER2 to U50_OPEN_LAYER5 in the following code:
+
+static int u50_dev_open(struct net_device *dev) {
+    struct u50_priv *priv = netdev_priv(dev);
+    if (priv->tty == NULL)
+        return -ENODEV;
+    U50LinkStart(&priv->state, 0, SMPBAUD, U50_OPEN_LAYER2);
+    flush_cancel(dev);
+    
+The U60 driver requires a unique and valid network device line discipline 
+number.  By default, the U60 driver uses line discipline number 28 since 
+28 is a valid but unassigned line discipline number for Linux kernel 3.8 
+as used in the IzoT Router.  You can use a different line discipline number 
+if 28 is not available or valid for your version of the Linux kernel.  The 
+maximum line discipline number is typically defined by the NR_LDISCS 
+constant.  For Linux kernel 3.8, NR_LDISCS is defined as 30.
+
+To compile the U60 driver, you first need a compiled kernel source tree, 
+including standard Linux support for a USB CDC/ACM class interface. The 
+IzoT Router uses the BeagleBone kernel source tree available at 
+https://github.com/RobertCNelson/linux-dev/releases.
+
+Once a kernel tree has been compiled, you then run the make modules command 
+in the kernel source tree and pass in the directory containing the U50Module 
+source in the SUBDIRS environment variable and the directory of the kernel 
+source in the KDIR environment variable.
+
+Example:
+
+KERN=/src/3.8.13-bone47/linux-dev-3.8.13-bone47/KERNEL
+U50_DIR=/src/U50Module/
+make -C $KERN KDIR=$KERN SUBDIRS=$U50_DIR ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- modules
+
+The module will be built as u50.ko, which should then be placed in the 
+/lib/modules/3.8.13-bone47/kernel/drivers/lon/ directory on the IzoT Router.
+
+A udev rule file is required to install the driver.  For example, you 
+can create a udev rule file named 90-liftd.rules in the /etc/udev/rules.d 
+directory.  Following is an example rule for the U60:
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0920", ATTRS{idProduct}=="5550", RUN+="/usr/bin/lonifd -d /dev/%k"
+
+If you modified the line discipline number, you must specify the 
+non-default line discipline number in the rule using the -l parameter.  
+The following example rule includes the -l parameter with a non-standard 
+value of 16 for the line discipline number:
+
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0920", ATTRS{idProduct}=="5550", RUN+="/usr/bin/lonifd -l 16 -d /dev/%k"
+
+You will also need to build the lonifd daemon.  Source code and a make 
+file is also included with the U60 driver for the lonifd daemon.
+
+Once you have built the driver and lonifd daemon, and you have created 
+the udev rule file, you can install the driver in Linux using the insmod command.  
+
+This will create a Linux network device.  If you create a single U60 
+driver, the name will be /dev/lon0.  This will not be a character device 
+as was typically used for classic LON drivers.  It will instead be a 
+network device that you will access through a socket interface.  The 
+benefit of a network device is that it can be easily used with the 
+Linux IP stack for supporting LonTalk/IP, for example when communicating 
+with the BACnet/IP, ICMP (for ping), or SNMP protocols over the U60.  
+
+If the U60 driver is initialized correctly, you will see the network 
+interface as one of the devices listed by the Linux ifconfig command.
+
+You can bypass the IP stack to use the U60 driver as just a classic 
+LON driver.  The following example code opens the U60 socket as a 
+raw character device with a packet socket, bypassing the IP stack:
+ 
+    int sockfd = socket(AF_PACKET, SOCK_RAW, htons(0x8950));
+ 
+    struct ifreq ifr = { 0 };
+    size_t ifnamelen = strlen(ifname);
+    memcpy(ifr.ifr_name, ifname, ifnamelen);
+    if (ioctl(socket, SIOCGIFINDEX, &ifr) < 0) {
+        return errno;
+    }
+ 
+    struct sockaddr_ll addr = { 0 };
+    addr.sll_family = AF_PACKET;
+    addr.sll_ifindex = ifr.ifr_ifindex;
+ 
+    if (bind(socket, (struct sockaddr*) &addr, sizeof(struct sockaddr_ll)) < 0) {
+        return errno;
+    }
+
+Using this example code, you can read and write the sockd device using 
+the same code used for other classic LON drivers.
+
+See the U60 Network Interface Module User's Guide or the U60 DIN Network 
+Interface User's Guide for more information.
+
+
