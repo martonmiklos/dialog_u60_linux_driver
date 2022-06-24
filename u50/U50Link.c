@@ -1208,8 +1208,8 @@ void smpReadProcess(struct U50LinkState *state)
 		// set up the read dest pointer.
 		// smpUplinkCopy will copy the length field.
 		state->m_UplinkReadPtr = &state->m_UplinkLvdp->Length;
-        state->m_LlpRxState = LLPSReadyRec2;
-		// Fall Into -->
+		state->m_LlpRxState = LLPSReadyRec2;
+		fallthrough;
 	case LLPSReadyRec2:
 		// In the middle of a message packet.
 		// copy & distill what we have read:
@@ -1293,7 +1293,7 @@ void smpWriteService(struct U50LinkState *state)
 			}
 			state->m_TMOCount = 0;
 		}
-		// fall into:
+		fallthrough;
 	case LLPTIdle:
 		// First look for post-reset startup work:
 		if(state->m_StartupIndex != -1)

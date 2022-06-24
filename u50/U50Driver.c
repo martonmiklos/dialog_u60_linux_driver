@@ -9,6 +9,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/tty.h>
 #include <linux/udp.h>
+#include <linux/version.h>
 #include <net/udp.h>
 #include <net/rtnetlink.h>
 
@@ -62,7 +63,7 @@ static int convert_skb_ip_to_lt(struct sk_buff *skb) {
 		domainid[1] = (destAddr & 0xff00) >> 8;
 	}
 	npdulen = ipv6_gen_compressed_arbitrary_udp_header((uint8_t*)&sourceAddr, sourcePort,
-        (uint8_t*)&destAddr, destPort,
+		(uint8_t*)&destAddr, destPort,
 		domainid, domainlen,
 		(uint8_t *)header_buf);
 	if (npdulen == 0) {
@@ -399,7 +400,7 @@ static int     u50_ldisc_hangup(struct tty_struct *tty) {
 }
 
 static void u50_ldisc_receive_buf(struct tty_struct *tty, 
-		const unsigned char *cp, char *fp, int count) {
+		const unsigned char *cp, const char *fp, int count) {
 	struct u50_priv *priv = tty->disc_data;
 	if (!priv || !netif_running(priv->dev)) return;
 
@@ -435,7 +436,12 @@ static void u50_ldisc_write_wakeup(struct tty_struct *tty) {
 
 static struct tty_ldisc_ops u50_ldisc = {
 	.owner = THIS_MODULE,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5,13,0)
 	.magic = TTY_LDISC_MAGIC,
+#endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
+	.num = N_U50,
+#endif
 	.name = "u50",
 	.open = u50_ldisc_open,
 	.close = u50_ldisc_close,
@@ -536,14 +542,22 @@ static int __init u50_init(void) {
 	//Register TTY Line Discipline - used to handle serial connection
 	err = rtnl_link_register(&u50_link_ops);
 	dev_add_pack(&ldv_packet_type);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	err = tty_register_ldisc(N_U50, &u50_ldisc);
+#else
+	err = tty_register_ldisc(&u50_ldisc);
+#endif
 	return err;
 }
 
 static void __exit u50_exit(void) {
 	rtnl_link_unregister(&u50_link_ops);
 	dev_remove_pack(&ldv_packet_type);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 	tty_unregister_ldisc(N_U50);
+#else
+	tty_unregister_ldisc(&u50_ldisc);
+#endif
 }
 
 module_init(u50_init);

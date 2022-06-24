@@ -1,3 +1,4 @@
 .
 include
-/usr/src/linux-headers-5.4.0-109-generic/include
+/usr/src/linux-headers-5.15.0-40-generic/include
+/usr/src/linux-headers-5.15.0-40-generic/include/generated/uapi
