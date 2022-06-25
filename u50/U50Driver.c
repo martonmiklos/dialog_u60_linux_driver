@@ -274,7 +274,12 @@ static netdev_tx_t  u50_dev_xmit(struct sk_buff *skb, struct net_device *dev) {
 	return NETDEV_TX_OK;
 }
 
-static int u50_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd) {
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5,14,0)
+static int u50_dev_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
+#else
+static int u50_dev_ioctl(struct net_device *dev, struct ifreq *ifr, void __user *data, int cmd)
+#endif
+{
 	struct u50_priv *priv = netdev_priv(dev);
 	if (cmd == SIOCDEVPRIVATE) {
 		memcpy(&ifr->ifr_data, priv->tty->name, strlen(priv->tty->name));
@@ -288,7 +293,11 @@ static const struct net_device_ops u50_netdev_ops = {
 	.ndo_open = u50_dev_open,
 	.ndo_stop = u50_dev_stop,
 	.ndo_start_xmit = u50_dev_xmit,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(5,14,0)
 	.ndo_do_ioctl = u50_dev_ioctl,
+#else
+	.ndo_siocdevprivate = u50_dev_ioctl,
+#endif
     .ndo_set_mac_address = U50SetHWAddr,
 };
 
