@@ -2,7 +2,7 @@
 
 ### U50 
 
-Linux kernel module for the Adesto/Dialog U60 USB to Lon interface, patched to work with Linux kernel 5.4.0
+Linux kernel module for the Adesto/Dialog U60 USB to Lon interface, patched to work with Linux kernel 5.4.0, 5.15.0 and 6.2.0
 
 Source:
 

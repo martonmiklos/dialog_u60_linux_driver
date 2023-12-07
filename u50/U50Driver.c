@@ -149,7 +149,11 @@ void u50_bump(struct u50_priv *priv, uint8_t *buf, int count) {
 	skb->protocol = htons(U50_PROTO);
 	dev->stats.rx_packets++;
 	dev->stats.rx_bytes += count;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 18, 0)
 	netif_rx_ni(skb);
+#else
+    netif_rx(skb);
+#endif
 }
 
 static int u50_dev_init(struct net_device *dev) {
@@ -399,13 +403,23 @@ static void    u50_ldisc_close(struct tty_struct *tty) {
 	}
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
 static int     u50_ldisc_ioctl(struct tty_struct *tty, struct file *file, unsigned int cmd, unsigned long arg) {
+#else
+static int     u50_ldisc_ioctl(struct tty_struct *tty, unsigned int cmd, unsigned long arg) {
+#endif
 	return 0;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 static int     u50_ldisc_hangup(struct tty_struct *tty) {
+#else
+static void     u50_ldisc_hangup(struct tty_struct *tty) {
+#endif
 	u50_ldisc_close(tty);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 16, 0)
 	return 0;
+#endif
 }
 
 static void u50_ldisc_receive_buf(struct tty_struct *tty, 
