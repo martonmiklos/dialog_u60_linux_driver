@@ -1,6 +1,6 @@
 include ../../../Apollo.cfg
 
-KMODS = u61 u50
+KMODS = u50
 KDIR = ../../../$(SYSROOTDEV)/usr/src/linux-$(KVERSION)
 
 all: $(ARCH)
