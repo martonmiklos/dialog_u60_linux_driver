@@ -183,7 +183,11 @@ static int U50SetHWAddr(struct net_device *dev, void *dummy)
     if (priv->state.m_bHaveMAC) {
         dev->addr_len = 6;
         memcpy(dev->perm_addr, priv->state.m_mac_id, dev->addr_len);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 17, 0)
+        dev_addr_set(dev, priv->state.m_mac_id);
+#else
         memcpy(dev->dev_addr, priv->state.m_mac_id, dev->addr_len);
+#endif
         memset(dev->broadcast, 0xff, dev->addr_len);
         LDDebugInform("netdev perm_addr and dev_addr set!");
     }
