@@ -1,19 +1,42 @@
+// SPDX-License-Identifier: GPL-2.0 AND MIT
+// Copyright © 2021-2022 Dialog Semiconductor
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in 
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 ///////////////////////////////////////////////////////////////////////////////
-//
-// $Header: //depot/Software/IotRouter/dev/U50Module/U50Link.c#11 $
-//
-//  Copyright 2013-2018, Echelon Corp.  All rights reserved.
 //
 // U50Link.cpp : Defines the U50Link class.
 //
 #define U50_LINK_TRACE	0
+#define AP2549			1
 #include <linux/delay.h>
+#include <linux/version.h>
 #include <linux/list.h>
 #include <linux/kmod.h>
+#include <linux/time.h>
 #include "u50_priv.h"
 #include "Ldv32.h"
 #include "U50Link.h"
 #include "U50Osal.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(3,17,0)
+#include <linux/timekeeping.h>
+#endif
 
 BOOL WaitThreadStart(struct U50LinkState *state);
 void smpReaderStateZap(struct U50LinkState *state);
@@ -191,6 +214,7 @@ void U50LinkShutdown(struct U50LinkState *state)
 short U50LinkStart(struct U50LinkState *state, PORT_HANDLE hComPort, DWORD baudrate, U50OpenMode mode)
 {
     int macRetries = 2;
+    struct timespec64 ts;
 	state->m_hComPort = hComPort;
 	state->m_Options = (DCMP_BLIND|DCMP_DEFAULT);
 	state->m_OpenMode = mode;
@@ -201,6 +225,7 @@ short U50LinkStart(struct U50LinkState *state, PORT_HANDLE hComPort, DWORD baudr
 	state->m_TMOCount = 0;
 	state->m_AckTimeoutPhase = 0;
 	state->m_tCountKeepalive = OsalGetTickCount();
+	state->m_tLogThrottle = 0;
 	state->m_RxSequence = ~S10MASK_SEQN;	// Force mismatch on first frame.
 	state->m_TxSequence = 0;
 	state->m_NiCmdLocal = 0;
@@ -216,6 +241,8 @@ short U50LinkStart(struct U50LinkState *state, PORT_HANDLE hComPort, DWORD baudr
 	state->m_UplinkReadPtr = NULL;
     state->m_bWaitForMAC = TRUE;
     state->m_bHaveMAC = FALSE;
+    ktime_get_real_ts64(&ts);
+	state->m_tStartup = ts.tv_sec;
 
 	smpResetReader(state);
 	smpReaderStateZap(state);
@@ -284,13 +311,7 @@ short U50LinkRead(struct U50LinkState *state, pLDV_Message pMsg, int iSize)
 
 //////////////////////////////////////////////////////////////////////
 short U50LinkWrite(struct U50LinkState *state, const pLDV_Message pMsg) {
-	uint16_t i = 0;
-    short ldvRet = LDV_NO_BUFF_AVAIL;
-    printk("U50LinkWrite %02X %02X\n", pMsg->NiCmd, pMsg->Length);
-	for (i = 0; i<pMsg->Length; i++) {
-		printk("%02X", pMsg->ExpAppMessage[i]);
-	}
-	printk("\n");
+	short ldvRet = LDV_NO_BUFF_AVAIL;
 	smpEnterCriticalSection(state);
 	if (getDownlinkBufferSize(state) < DOWNLINK_BUF_COUNT)
 	{
@@ -515,7 +536,7 @@ void smpDlNiCmdLocal(struct U50LinkState *state)
 
 // This needs to be in the format of the LONVXD_Buffer struct - length 1st
 const unsigned char msgNdStatus[] = {1+14+(1), 0x22,
-		0x60, 0x08, (1),
+		0x6F, 0x08, (1),		// message tag:15 for 'private', response will be CMD/QUE of 0x16
 		0x00, 0x00, 0x00, 0x00, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 		ND|ND_REPORT_STATUS};
@@ -689,7 +710,7 @@ void smpTxComplete(struct U50LinkState *state)
 	smpTxCompleteModal(state);
 #if U50_LINK_TRACE
 	if (state->m_AckTimeoutPhase >= 2) {
-		LDDebugError("[%d] ACK mode restored.", state->m_DevIndex);
+		LDDebugNotice("[%d] ACK mode restored.", state->m_DevIndex);
 	}
 #endif
 	state->m_AckTimeoutPhase = 0;
@@ -780,8 +801,13 @@ void smpUplinkQueue(struct U50LinkState *state, LONVXD_Buffer *lvdp)
                 pMsg->Length = lvdp->Length-1;
                 pMsg->NiCmd = lvdp->NiCmd;
             }
-
-            u50_bump(get_priv(state), (uint8_t*)pMsg, iCpyLength);
+            if (pMsg->NiCmd == 0x16 &&						// niCOMM|niRESPONSE
+				pMsg->Length > (3+11) &&					// MsgHdr + ExpAddr
+				(pMsg->ExpAppMessage[0] & 0x0F) == 0x0F) {	// tag:15
+				; // local: do not post, or maybe process locally?
+			} else {
+				u50_bump(get_priv(state), (uint8_t*)pMsg, iCpyLength);
+			}
             freeMemory(pMsg);
         }
 	}
@@ -964,7 +990,7 @@ void smpCodePacketRxd(struct U50LinkState *state, BOOL bRxReset)
 		else {
 #if U50_LINK_TRACE
 			// This isn't necessarily an error.
-			LDDebugError("[%d] Unknown CpMsgReject Cause in state %d.", state->m_DevIndex, state->m_LlpTxState);
+			LDDebugNotice("[%d] Unknown CpMsgReject Cause in state %d.", state->m_DevIndex, state->m_LlpTxState);
 #endif
 		}
 		break;
@@ -1032,7 +1058,7 @@ void smpUplinkCopy(struct U50LinkState *state)
 				if(state->m_LlpRxState == LLPSReadyRec1 || state->m_LlpRxState == LLPSReadyRec2)
 				{
 #if U50_LINK_TRACE
-					LDDebugError("[%d] CP received while reading message, ReadCount: %d, CP: %02X", state->m_DevIndex, ReadCount, *pSrc);
+					LDDebugNotice("[%d] CP received while reading message, ReadCount: %d, CP: %02X", state->m_DevIndex, ReadCount, *pSrc);
 #endif
 					// Typically this is "ReadCount: 2, CP: 10" (start of an ACK)
 					// Does the U50 send an ACK CP after sending the CpMsg CP?
@@ -1075,7 +1101,7 @@ void smpUplinkCopy(struct U50LinkState *state)
 	delta = pDst - (BYTE *)state->m_UplinkReadPtr;
 	if (delta > state->m_UplinkLength)
 	{
-		LDDebugError("[%d] Uplink Length Underflow (Delta:%d Len:%d)", state->m_DevIndex, delta, state->m_UplinkLength);
+		LDDebugNotice("[%d] Uplink Length Underflow (Delta:%d Len:%d)", state->m_DevIndex, delta, state->m_UplinkLength);
 		state->m_UplinkLength = 0;
 	}
 	else
@@ -1083,7 +1109,7 @@ void smpUplinkCopy(struct U50LinkState *state)
 		state->m_UplinkLength -= delta;
 		if(state->m_UplinkLength > SIZE_ULB)
 		{
-			LDDebugError("[%d] Uplink Length Overflow (Delta:%d Len:%d)", state->m_DevIndex, delta, state->m_UplinkLength);
+			LDDebugNotice("[%d] Uplink Length Overflow (Delta:%d Len:%d)", state->m_DevIndex, delta, state->m_UplinkLength);
 			state->m_UplinkLength = 0;
 		}
 	}
@@ -1202,7 +1228,7 @@ void smpReadProcess(struct U50LinkState *state)
 			if(state->m_UplinkLength > MAXLONMSG+4)
 			{
 				// really bad length!
-				LDDebugError("[%d] Out of range uplink length: %d", state->m_UplinkLength);
+				LDDebugNotice("[%d] Out of range uplink length: %d", state->m_DevIndex, state->m_UplinkLength);
 				smpReaderStateZap(state);
 				return;
 			}
@@ -1214,8 +1240,9 @@ void smpReadProcess(struct U50LinkState *state)
 		// set up the read dest pointer.
 		// smpUplinkCopy will copy the length field.
 		state->m_UplinkReadPtr = &state->m_UplinkLvdp->Length;
-		state->m_LlpRxState = LLPSReadyRec2;
-		fallthrough;
+        state->m_LlpRxState = LLPSReadyRec2;
+		// Fall Into -->
+        fallthrough;
 	case LLPSReadyRec2:
 		// In the middle of a message packet.
 		// copy & distill what we have read:
@@ -1241,6 +1268,31 @@ void smpReadProcess(struct U50LinkState *state)
 		// Look for a second message packet
 		smpReaderStateZap(state);
 	}
+}
+
+static void U50DumpRawLTV2(BYTE *bp, WORD nCount)
+{
+#if 0
+	char *pBuf = allocateMemory(1024);
+	char hcBuf[16];
+	int pbCount;
+	if (!pBuf)
+		return;
+
+	strcpy(pBuf, KERN_INFO "U50: LTV2 Send: ");
+	pbCount = strlen(pBuf);
+	
+	while(nCount--) {
+		sprintf(hcBuf, "%02X ", *bp++);
+		strcat(pBuf, hcBuf);
+		pbCount += strlen(hcBuf);
+		if (pbCount > (1024 - 16))
+			break;
+	}
+	strcat(pBuf, "\n");
+	printk(pBuf);
+	freeMemory(pBuf);
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -1283,23 +1335,35 @@ void smpWriteService(struct U50LinkState *state)
 				if (++state->m_AckTimeoutPhase == 0)
 					state->m_AckTimeoutPhase--;
 #if U50_LINK_TRACE
-				LDDebugError("[%d] ACK timeout limit #%d, TXS: %02X, requesting status.",
+				LDDebugNotice("[%d] ACK timeout limit #%d, TXS: %02X, requesting status.",
 					state->m_DevIndex, state->m_AckTimeoutPhase, state->m_TxSequence);
-				LDDebugError("[%d] CsumErrors:%d  CpFails:%d",
+				LDDebugNotice("[%d] CsumErrors:%d  CpFails:%d",
 					state->m_DevIndex, state->m_Llpstat.CsumErrors, state->m_Llpstat.CpFails);
 				if (priv) {
-					LDDebugError("[%d] RCount currently: %d, RxOffset %d",
+					LDDebugNotice("[%d] RCount currently: %d, RxOffset %d",
 						state->m_DevIndex, priv->rcount, state->m_LlpRxOffset);
 				}
-				LDDebugError("[%d] TX state %d, RX state %d",
+				LDDebugNotice("[%d] TX state %d, RX state %d",
 					state->m_DevIndex, iTxState, state->m_LlpRxState);
 #endif
 			} else {		// just do this once.
-				smpPanic(state);
+                struct timespec64 ts;
+                ktime_get_real_ts64(&ts);
+				if (state->m_bHaveMAC && (ts.tv_sec - state->m_tStartup) > 60) {
+					smpPanic(state);
+					state->m_tStartup = ts.tv_sec;		// Don't keep doing this too rapidly.
+				} else {	// not so fast..
+					state->m_AckTimeoutPhase = 0;
+				}
 			}
 			state->m_TMOCount = 0;
+		} else {
+#if U50_LINK_TRACE
+			LDDebugNotice("[%d] ACK timeout (first case)", state->m_DevIndex);
+#endif
 		}
-		fallthrough;
+		// fall into:
+        fallthrough;
 	case LLPTIdle:
 		// First look for post-reset startup work:
 		if(state->m_StartupIndex != -1)
@@ -1363,19 +1427,37 @@ void smpWriteService(struct U50LinkState *state)
 				}
 				else
 				{
+					BOOL bDropit = FALSE;
 					// It's a message.
 					// AP-2549 - drop LTV1 packets for now.
+					#if AP2549
 					if (state->m_OpenMode != U50_OPEN_LAYER5 &&
 						(state->m_pDownlinkMsg->NiCmd == (niCOMM|niTQ) || state->m_pDownlinkMsg->NiCmd == (niCOMM|niTQ_P)) &&
-						(state->m_pDownlinkMsg->ExpAppMessage[1] & 0xC0) == 0x40) {
+						(state->m_pDownlinkMsg->ExpAppMessage[1] & 0xC0) == 0x40) {		// LTV1 message
+						//
+						BYTE *pExpM = state->m_pDownlinkMsg->ExpAppMessage;
+						U50DumpRawLTV2(pExpM, state->m_pDownlinkMsg->Length-1);
+						//
+						if (pExpM[IPV4_TOS] == 0 && pExpM[IPV4_PROTO] == 1) {					// ICMP 
+							if (pExpM[IPV4_ICMP_TYPE] == 8 && pExpM[IPV4_ICMP_CODE] == 0) {		// ICMP ping
+							/*
+							if (pExpM[IPV4_DEST_ADDR+3] == 255) {	// broadcast?
+								bDropit = TRUE;
+							} else if ((pExpM[IPV4_DEST_ADDR+0] & 0xF0) == 0xE0) { // multicast?
+								bDropit = TRUE;
+							}
+							*/
+							} else {
+								bDropit = TRUE;
+							}
+						}
+					}
+					#endif
+					if (bDropit) {
 						smpMessageComplete(state);
-					}
-					else if(state->m_Options & DCMP_BLIND)
-					{
+					} else if(state->m_Options & DCMP_BLIND) {
 						smpDlMsgNow(state);
-					}
-					else
-					{
+					} else {
 						// Start a downlink message transfer.
 						smpInitiateCp(state, CpMsgReq);
 						smpResetAckTimer(state, LLPTMsgAckWait);
@@ -1486,12 +1568,12 @@ DWORD TheReaderThread(struct U50LinkState *state)
 			// Sanity check: I would like to know if this is screwed up:
 			if((state->m_pULB + state->m_LlpRxOffset + state->m_NextRxCount) >= &state->m_UplinkBuffer[SIZE_ULB])
 			{
-				LDDebugError("[%d] Uplink Buffer Overrun.", state->m_DevIndex);
+				LDDebugNotice("[%d] Uplink Buffer Overrun.", state->m_DevIndex);
 				smpResetReader(state);
 			}
 			state->m_RxCountRead = 0;
 			// read from COM port.
-			// remember that overlapped reads fill out the read-to buffer in the background.
+			// remember that overlapped reads fill out the read-to buffer in the background. (um, that's a Windows thing)
 			RdStatus = CalLowerRead(state, state->m_pULB + state->m_LlpRxOffset, state->m_NextRxCount, &state->m_RxCountRead);
 			// if ERROR_IO_PENDING then wait.
 			if (RdStatus == ERROR_IO_PENDING && state->m_RTState == TSTATE_RUNNING) {
@@ -1546,7 +1628,9 @@ DWORD TheReaderThread(struct U50LinkState *state)
 			state->m_DownlinkAck = FALSE;
 			// peg a stat?
 			state->m_Llpstat.RxTmos++;
-			LDDebugError("[%d] Incomplete input stream, restart.", state->m_DevIndex);
+#if U50_LINK_TRACE
+			LDDebugNotice("[%d] Incomplete input stream, restart.", state->m_DevIndex);
+#endif			
 		}
 //		if (CalLowerReadCount(state)) {
 //			continue;		// more RX data to process!

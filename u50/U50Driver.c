@@ -1,3 +1,24 @@
+// SPDX-License-Identifier: GPL-2.0 AND MIT
+// Copyright © 2021-2022 Dialog Semiconductor
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in 
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 
@@ -19,6 +40,14 @@
 #include "packet_util.h"
 #include "ipv6_ls_to_udp.h"
 #include "LtPacket.h"
+
+// sysfs support
+#include <linux/kobject.h>
+#include <linux/sysfs.h>
+#include <linux/fs.h>
+#include <linux/string.h>
+
+#define U50_PKT_TRACE		0
 
 //User Space Write:
 //Write to Device->netdev->lon driver->tty xmit
@@ -67,7 +96,7 @@ static int convert_skb_ip_to_lt(struct sk_buff *skb) {
 		domainid, domainlen,
 		(uint8_t *)header_buf);
 	if (npdulen == 0) {
-		printk("ipv6_convert_ls_v1_to_v0 return ltV0len of 0, dropping packet.");
+		LDDebugNotice("ipv6_gen_compressed_arbitrary_udp_header returned npdulen of 0, dropping packet.");
 	} else {
 		totalsize = udplen - sizeof(struct udphdr) + npdulen;
 		msg_buf[0] = 0x12;
@@ -137,9 +166,10 @@ void u50_bump(struct u50_priv *priv, uint8_t *buf, int count) {
 	struct net_device *dev = priv->dev;
 	struct sk_buff *skb;
 
-	skb = dev_alloc_skb(count);
+	// skb = dev_alloc_skb(count);
+	skb = netdev_alloc_skb_ip_align(dev, count);	// see discussion of NET_IP_ALIGN in skbuff.h
 	if (skb == NULL) {
-		printk(KERN_WARNING "%s: No memory, dropping packet\n", dev->name);
+		LDDebugNotice("%s: No memory, dropping packet", dev->name);
 		dev->stats.rx_dropped++;
 		return;
 	}
@@ -229,6 +259,7 @@ static netdev_tx_t  u50_dev_xmit(struct sk_buff *skb, struct net_device *dev) {
 	struct iphdr *ip = (struct iphdr*)skb_network_header(skb);
 	struct udphdr *udp = (struct udphdr*)&skb->data[ip->ihl * 4];
 	struct sk_buff *txskb = skb_copy(skb, GFP_ATOMIC);
+    short ldverr;
 	u50_lock(priv);
 	dev->stats.tx_bytes += skb->len;
 	if (skb->protocol == htons(ETH_P_IP) && ip->protocol == IPPROTO_UDP) {
@@ -237,7 +268,7 @@ static netdev_tx_t  u50_dev_xmit(struct sk_buff *skb, struct net_device *dev) {
 				u50_unlock(priv);
 				dev_kfree_skb(skb);
 				dev_kfree_skb(txskb);
-				printk("Failed to convert message\n");
+				LDDebugNotice("Failed to convert convert_skb_ip_to_lt message");
 				return NETDEV_TX_OK;
 			}
 		} else {
@@ -276,7 +307,33 @@ static netdev_tx_t  u50_dev_xmit(struct sk_buff *skb, struct net_device *dev) {
 			generate_lt_header(&skb_buf[2]);
 		}
 	}
-	U50LinkWrite(&priv->state, (pLDV_Message)txskb->data);
+#if U50_PKT_TRACE
+	{
+		// Note: LDDebugOut() works with a 128 byte buffer.
+		char szBuffer[128];
+		char szHex[6];
+		pLDV_Message plm = (pLDV_Message)txskb->data;
+		int ii;
+		szBuffer[0] = 0;
+		for (ii=0; ii < plm->Length && ii < 20; ii++) {
+			snprintf(szHex, sizeof(szHex)-1, "%02X ", plm->ExpAppMessage[ii]);
+			strcat(szBuffer, szHex);
+		}
+		LDDebugInform("u50_dev_xmit(): NiCmd %02X, Length %d, Message: %s", plm->NiCmd, plm->Length, szBuffer);
+	}
+#endif
+	if ((ldverr = U50LinkWrite(&priv->state, (pLDV_Message)txskb->data))) {
+		dev->stats.tx_dropped++;
+		// AP-5595 - Since we now bump the stat dev->stats.tx_dropped there's really no need to fill up
+		// the kern.log with this fact. It's simply easier to check this stat using ifconfig.
+		#if 0
+		// AP-4903 - throttle this message as LTE has been known to hammer too many outgoing messages at the interface.
+		if (LogThrottleCheck(&priv->state)) {
+			unsigned uMACLSB = (priv->state.m_mac_id[4] << 8) | priv->state.m_mac_id[5];
+			LDDebugNotice("%04X U50LinkWrite() failed: %d", uMACLSB, ldverr);
+		}
+		#endif
+	}
 	dev_kfree_skb(skb);
 	dev_kfree_skb(txskb);
 	return NETDEV_TX_OK;
@@ -564,18 +621,49 @@ static struct packet_type ldv_packet_type __read_mostly = {
 	.func = ldv_rcv,
 };
 
-static int __init u50_init(void) {
-	int err = 0;
-	//Register TTY Line Discipline - used to handle serial connection
-	err = rtnl_link_register(&u50_link_ops);
-	dev_add_pack(&ldv_packet_type);
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
-	err = tty_register_ldisc(N_U50, &u50_ldisc);
-#else
-	err = tty_register_ldisc(&u50_ldisc);
-#endif
-	return err;
+volatile uint8_t ipv6_one_len_domain_prefix = 44;
+static struct kobject *obdn_file;
+
+static ssize_t showEntry(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
+    LDDebugInform("showEntry(%d)", ipv6_one_len_domain_prefix);
+    return sprintf(buf, "%d\n", ipv6_one_len_domain_prefix);
 }
+
+static ssize_t storeEntry(struct kobject *kobj, struct kobj_attribute *attr, const char *buf, size_t count) {
+    int val = 0;
+    sscanf(buf,"%d",&val);
+    ipv6_one_len_domain_prefix = val;
+    LDDebugInform("storeEntry(%d)", ipv6_one_len_domain_prefix);
+    return count;
+}
+
+static struct kobj_attribute obdn_attribute =__ATTR(ltip_obd_prefix, 0664, showEntry,  storeEntry);
+
+
+static int __init u50_init(void) {
+    int err2 = 0, err = 0;
+    //Register TTY Line Discipline - used to handle serial connection
+    obdn_file = &(THIS_MODULE->mkobj.kobj);
+    if(!obdn_file) {
+        err = -ENOMEM;
+    }
+    else {
+        err = rtnl_link_register(&u50_link_ops);
+        dev_add_pack(&ldv_packet_type);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
+        err = tty_register_ldisc(N_U50, &u50_ldisc);
+#else
+        err = tty_register_ldisc(&u50_ldisc);
+#endif
+        err2 = sysfs_create_file(obdn_file, &obdn_attribute.attr);
+        if (err2) {
+            LDDebugInform("Failed to create the ltip_obd_prefix file in /sys/module/u50 (%d/%x)\n", err, err);
+        }
+    }
+
+    return err;
+}
+
 
 static void __exit u50_exit(void) {
 	rtnl_link_unregister(&u50_link_ops);
@@ -585,6 +673,7 @@ static void __exit u50_exit(void) {
 #else
 	tty_unregister_ldisc(&u50_ldisc);
 #endif
+    sysfs_remove_file(obdn_file, &obdn_attribute.attr);
 }
 
 module_init(u50_init);
@@ -592,7 +681,7 @@ module_exit(u50_exit);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS_LDISC(N_U50);
 #ifdef U50_LAYER5
-MODULE_DESCRIPTION("U50 SMIP Driver 1.3 L5");
+MODULE_DESCRIPTION("U50 SMIP Driver 1.4 L5");
 #else
-MODULE_DESCRIPTION("U50 SMIP Driver 1.3 L2");
+MODULE_DESCRIPTION("U50 SMIP Driver 1.4 L2");
 #endif

@@ -1,10 +1,29 @@
+// SPDX-License-Identifier: GPL-2.0 AND MIT
+// Copyright © 2021-2022 Dialog Semiconductor
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in 
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 /****************************************************************************
  *
  *  FILE DESCRIPTION:  
  *      This header file contains the definitions and function prototypes
  *      used to translate between LonTalk V0 or V2 and LS/UDP
- *
- *  Copyright (c) 2014 Echelon Corporation.  All Rights Reserved.
  *
  ***************************************************************************/
 #ifndef _IPV6_LS_TO_UDP_H
@@ -52,7 +71,7 @@ extern "C" {            /* Assume C declarations for C++ */
 //
 // DestAddr has one of the following forms
 //
-//  Broacast (f = 1):  Group (f = 1):   Subnet/Node (f = 1)   
+//  Broadcast (f = 1):  Group (f = 1):   Subnet/Node (f = 1)   
 //      |  8   |          |  8   |       |  8   |1| 7  |      
 //      |======|          |======|       |======|=|====|      
 //      |subnet|          |group |       |subnet|1|Node|      
@@ -91,14 +110,17 @@ extern "C" {            /* Assume C declarations for C++ */
 // |====================
 #define IPV6_LTVX_NPDU_BITPOS_DELTA_BACKLOG 0
 #define IPV6_LTVX_NPDU_MASK_DELTA_BACKLOG  (0x3f << IPV6_LTVX_NPDU_BITPOS_DELTA_BACKLOG)
+#define IPV6_LTVX_NPDU_BITPOS_ALT_PATH     6
+#define IPV6_LTVX_NPDU_MASK_ALT_PATH       (1 << IPV6_LTVX_NPDU_BITPOS_ALT_PATH)
 #define IPV6_LTVX_NPDU_BITPOS_PRIORITY     7
 #define IPV6_LTVX_NPDU_MASK_PRIORITY       (1 << IPV6_LTVX_NPDU_BITPOS_PRIORITY)
+#define IPV6_GET_ALT_PATH_FROM_NPDU(npdu)  (((npdu)[IPV6_LTVX_NPDU_IDX_PRIDELTA] & IPV6_LTVX_NPDU_MASK_ALT_PATH) >> IPV6_LTVX_NPDU_BITPOS_ALT_PATH)
 
 // Byte 1 - IPV6_LTVX_NPDU_IDX_TYPE
 
-// | 2 | 2 | 2 |   2   |  2  | 
-// |===|===|===|=======|=====|
-// |Ver|PDU|Fmt|AddrFmt|DmLen|
+// | 2 |   2   |   2   |  2  | 
+// |===|=======|=======|=====|
+// |Ver|PDU Fmt|AddrFmt|DmLen|
 // ===========================
 #define IPV6_LTVX_NPDU_BITPOS_DOMAINLEN     0
 #define IPV6_LTVX_NPDU_BITPOS_ADDRTYPE      2
@@ -193,11 +215,13 @@ extern "C" {            /* Assume C declarations for C++ */
 #define IPV6_LSUDP_UDP_VER_LS_ENHANCED       1
 #define IPV6_LSUDP_UDP_VER_CURRENT           IPV6_LSUDP_UDP_VER_LS_ENHANCED
 
-#define IPV6_LSUDP_NPDU_BITPOS_ARB_SOURCE    0   
-#define IPV6_LSUDP_NPDU_BITPOS_FLAGS         1
+#define IPV6_LSUDP_NPDU_BITPOS_ARB_SOURCE    0
+#define IPV6_LSUDP_NPDU_BITPOS_UNMAPPED      1
+#define IPV6_LSUDP_NPDU_BITPOS_FLAGS         2
 #define IPV6_LSUDP_NPDU_BITPOS_UDPVER        4
 #define IPV6_LSUDP_NPDU_MASK_ARB_SOURCE      (0x01 << IPV6_LSUDP_NPDU_BITPOS_ARB_SOURCE)
-#define IPV6_LSUDP_NPDU_MASK_FLAGS           (0x07 << IPV6_LSUDP_NPDU_BITPOS_FLAGS)
+#define IPV6_LSUDP_NPDU_MASK_UNMAPPED        (0x01 << IPV6_LSUDP_NPDU_BITPOS_UNMAPPED)
+#define IPV6_LSUDP_NPDU_MASK_FLAGS           (0x03 << IPV6_LSUDP_NPDU_BITPOS_FLAGS)
 #define IPV6_LSUDP_NPDU_MASK_UDPVER          (0x0f << IPV6_LSUDP_NPDU_BITPOS_UDPVER)
 
 // Byte 1 
@@ -452,7 +476,8 @@ uip_ds6_prefix_t *pIpv6LsDomainUipPrefix;
 extern const uint8_t ipv6_ls_multicast_prefix[2];
 // The 2 byte IP prefix used to represent the 0 length domain
 extern const uint8_t ipv6_zero_len_domain_prefix[2];
-#define IPV6_DOMAIN_LEN_1_PREFIX 10
+extern volatile uint8_t ipv6_one_len_domain_prefix;
+#define IPV6_DOMAIN_LEN_1_PREFIX ipv6_one_len_domain_prefix
 #define IPV6_DOMAIN_LEN_0_PREFIX_0 192
 #define IPV6_DOMAIN_LEN_0_PREFIX_1 168
 #endif 

@@ -1,8 +1,26 @@
+// SPDX-License-Identifier: GPL-2.0 AND MIT
+// Copyright © 2021-2022 Dialog Semiconductor
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy of
+// this software and associated documentation files (the "Software"), to deal in 
+// the Software without restriction, including without limitation the rights to
+// use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+// of the Software, and to permit persons to whom the Software is furnished to do
+// so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
 ///////////////////////////////////////////////////////////////////////////////
 //
-// $Header: //depot/Software/IotRouter/dev/U50Module/include/U50Defs.h#6 $
-//
-//  Copyright 2013-2018, Echelon Corp.  All rights reserved.
 //
 // Definitions private to the DLL.
 ///////////////////////////////////////////////////////////////////////////////
@@ -17,6 +35,7 @@
 
 void LDDebugError(LPCSTR szFormat, ... );
 void LDDebugInform(LPCSTR szFormat, ... );
+void LDDebugNotice(LPCSTR szFormat, ... );
 void LDDebugTracePacket(LPCSTR szType, BYTE *mp, WORD length);
 PORT_HANDLE U50OpenComPort(LPCSTR szComPort);
 
@@ -26,7 +45,7 @@ PORT_HANDLE U50OpenComPort(LPCSTR szComPort);
 #define MAXLONMSGNOEX				240
 #define MAXLONMSG					1280
 // We limit the size of the queues in both directions:
-#define DOWNLINK_BUF_COUNT		4
+#define DOWNLINK_BUF_COUNT		20		// was 4
 #define UPLINK_BUF_COUNT		16
 
 typedef struct 
@@ -90,7 +109,7 @@ typedef enum {
 #define ACK_TIMEOUT  		100		// ref: 115200 baud
 #define STARTUP_ACK_TIMEOUT	100
 
-#define READ_TIMEOUT		250		// ref: 115200 baud
+#define READ_TIMEOUT		100		// ref: 115200 baud
 #define BACKOFF_TIMEOUT		5		// ref: 115200 baud
 
 #define S10ESC       0x7E // Slta10 Escape Character
