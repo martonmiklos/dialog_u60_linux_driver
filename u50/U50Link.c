@@ -284,13 +284,13 @@ short U50LinkRead(struct U50LinkState *state, pLDV_Message pMsg, int iSize)
 
 //////////////////////////////////////////////////////////////////////
 short U50LinkWrite(struct U50LinkState *state, const pLDV_Message pMsg) {
-	printk("U50LinkWrite %02X %02X\n", pMsg->NiCmd, pMsg->Length);
 	uint16_t i = 0;
+    short ldvRet = LDV_NO_BUFF_AVAIL;
+    printk("U50LinkWrite %02X %02X\n", pMsg->NiCmd, pMsg->Length);
 	for (i = 0; i<pMsg->Length; i++) {
 		printk("%02X", pMsg->ExpAppMessage[i]);
 	}
 	printk("\n");
-	short ldvRet = LDV_NO_BUFF_AVAIL;
 	smpEnterCriticalSection(state);
 	if (getDownlinkBufferSize(state) < DOWNLINK_BUF_COUNT)
 	{
