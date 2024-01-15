@@ -8,9 +8,10 @@ Source:
 
 https://www.dialog-semiconductor.com/sites/default/files/u60_driver_source_2018-12-14.zip
 
-### U61
+In the meantime an updated repo associated with the vendor could be found here:
+https://github.com/izot/lon-driver
 
-No idea some random code from Dialog for some unknown gear
+However it does not compile with newer kernels.
 
 ### lonifd
 
