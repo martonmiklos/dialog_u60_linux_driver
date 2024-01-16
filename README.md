@@ -13,6 +13,10 @@ https://github.com/izot/lon-driver
 
 However he code in that particular repo does not compile with newer kernels.
 
+Changes between [the original source](https://www.dialog-semiconductor.com/sites/default/files/u60_driver_source_2018-12-14.zip
+) and [the izot repo](https://github.com/izot/lon-driver
+) were merged to this codebase.
+
 ### lonifd
 
 daemon process to manage the LON network interface via the serial link
@@ -33,9 +37,12 @@ See the [README](https://github.com/martonmiklos/dialog_u60_linux_driver/blob/ma
 
 ### License
 
-Unknown, I do not give a shit about it.
+~~Unknown, I do not give a shit about it.~~
 
-Copyright 2017 Echelon Corp present in several files...
+~~Copyright 2017 Echelon Corp present in several files...~~
 
-Use of this code is subject to the terms of the Echelon Example Software License
-Agreement which is available at www.echelon.com/license/examplesoftware/.
+~~Use of this code is subject to the terms of the Echelon Example Software License
+Agreement which is available at www.echelon.com/license/examplesoftware/.~~
+
+The izot/lon-driver got relicensed to the GPL v2.0 and MIT.
+During the merging of the changes I also changed the licenses.
